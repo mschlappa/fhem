@@ -2,133 +2,189 @@
 #
 # 70_KEBA.pm
 #
-# a module to send/receive messages or send commands 
-# to a KEBA P20 Wallbox with Ethernet. 
+# a module to send/receive messages or send commands to/from a 
+# KEBA KeContact P20 Wallbox (c-Series with Ethernet option only). 
 #
 # This wallbox is intended to load Electric Vehicles
 #
-# written 2015 by Marcus Schlappa <mschlappa at gmx.de>
+# written 2015 by Marcus Schlappa <mschlappa at gmx dot de>
 #
-# Version = 1.0   29.11.2015
+# Version = 1.1   02.12.2015
 #
 ##############################################################################
+
 
 
 package main;
 use strict;
 use warnings;
-use Blocking;
 use JSON;
+use Scalar::Util qw(looks_like_number);
 
 my %KEBA_gets = (
-	"info"	=> "i",
-	"report1"	=> "report 1",
-	"report2"  => "report 2",
-	"report3"  => "report 3",
+  "info"   => "i",
+  "update" => "report"
 );
+
+
 
 my %KEBA_sets = (
-	"enable"	=> "ena 1",
-	"disable"	=> "ena 0"
-	#"current"  => "curr"
+  "enableState" => "ena",
+  "current"     => "curr",
+  #"failsave"    => "failsave",
+  "outputX2"    => "output"
 );
 
 
+
+my %KEBA_state = (
+  0 => "starting",
+  1 => "not ready for charging",
+  2 => "ready for charging",
+  3 => "charging",
+  4 => "error",
+  5 => "authorization rejected"
+);
+
+
+
+my %KEBA_plug = (
+  0 => "unplugged",
+  1 => "plugged on wallbox",
+  3 => "plugged on wallbox, locked",
+  5 => "plugged on wallbox and ev",
+  7 => "plugged on wallbox and ev, locked"
+);
+
+
+
+my %KEBA_enablestate = (
+  0 => "disabled",
+  1 => "enabled"
+);
+
+
+
+my %KEBA_output = (
+  0 => "open",
+  1 => "closed"
+);
 
 
 
 sub KEBA_Initialize($) {
 
-    my ($hash) = @_;
+  my ($hash) = @_;
 
-    $hash->{DefFn}      = 'KEBA_Define';
-    $hash->{SetFn}      = 'KEBA_Set';
-    $hash->{GetFn}      = 'KEBA_Get';
-    $hash->{ReadFn}     = 'KEBA_Read';
+  $hash->{DefFn}      = 'KEBA_Define';
+  $hash->{UndefFn}    = 'KEBA_Undef';
+  $hash->{SetFn}      = 'KEBA_Set';
+  $hash->{GetFn}      = 'KEBA_Get';
+  $hash->{ReadFn}     = 'KEBA_Read';
+  $hash->{AttrList}   = $readingFnAttributes;
 }
-
-
 
 
 
 sub KEBA_Define($$) {
 	
-    my ($hash, $def) = @_;
-    my @param = split('[ \t]+', $def);
+  my ($hash, $def) = @_;
+  my @param = split('[ \t]+', $def);
     
-    if(int(@param) != 4) {
-		return "KEBA_Define: number of arguments incorrect. Usage:\n" .
-		         "define <name> KEBA <host> <port>";
-    }
+  if(int(@param) != 4) {
+    return "KEBA_Define: number of arguments incorrect. Usage:\n" .
+            "define <name> KEBA <host> <port>";
+  }
 
-    $hash->{Host}  = $param[2];
-    $hash->{Port} = $param[3];
+  $hash->{Host}  = $param[2];
+  $hash->{Port} = $param[3];
 	
-	Log3 $hash, 3, "$hash->{NAME} will read from KEBA at $hash->{Host}:$hash->{Port} " ;
+  Log3 $hash, 3, "$hash->{NAME} will read from KEBA at $hash->{Host}:$hash->{Port} " ;
  
-    KEBA_connect($hash);
+  KEBA_connect($hash);
 
 }
 
 
+
+sub KEBA_Undef($$)    
+{                     
+  my ( $hash, $arg ) = @_; 
+  my $socket = $hash->{CD};    
+  if ($socket) {close($socket);}
+  RemoveInternalTimer($hash);    
+  return undef;                  
+}    
 
 
 
 sub KEBA_connect($){
 
-    my ($hash) = @_;
+  my ($hash) = @_;
 
-    my $name = $hash->{NAME};
-    my $ip = $hash->{Host};
-    my $port = $hash->{Port};
+  my $name = $hash->{NAME};
+  my $ip = $hash->{Host};
+  my $port = $hash->{Port};
 	
-    my $socket = IO::Socket::INET->new(
-          Proto    => 'udp',
-		  LocalPort => $port
-      );
+  my $socket = IO::Socket::INET->new(Proto => 'udp', LocalPort => $port);
 	
-	if($socket) {
+  if($socket) {
 
-		$hash->{STATE} = "Listening";
-	    $hash->{LAST_CONNECT} = FmtDateTime( gettimeofday() );
-
-	    $hash->{FD}    = $socket->fileno();
-	    $hash->{CD}    = $socket;         # sysread / close won't work on fileno
-	    $hash->{CONNECTS}++;
-	    $selectlist{$name} = $hash;
+    $hash->{STATE} = "Listening";
+    $hash->{LAST_CONNECT} = FmtDateTime( gettimeofday() );
+    $hash->{FD}    = $socket->fileno();
+    $hash->{CD}    = $socket;         # sysread / close won't work on fileno
+    $hash->{CONNECTS}++;
+    $selectlist{$name} = $hash;
 		
-	    Log3 $name, 3, "listening for $name on $hash->{Port}";
-	}else{
-		Log3 $name, 3, "socket could not be created!";
-	}
+    Log3 $name, 3, "listening for $name on $hash->{Port}";
+
+  }else{
+    Log3 $name, 3, "socket could not be created!";
+
+  }
 }
-
-
 
 
 
 sub KEBA_sendCommand($)
 {
- my ($hash) = @_;
+  my ($hash) = @_;
 
- my $name = $hash->{NAME};
- my $ip = $hash->{Host};
- my $port = $hash->{Port};
- my $command = $hash->{Command};
- my $socket = $hash->{CD};
+  my $name = $hash->{NAME};
+  my $ip = $hash->{Host};
+  my $port = $hash->{Port};
+  my $socket = $hash->{CD};
+  
+  my $commandStack;
+  my $command;
+  
+  if (defined ($hash->{Command})){
+  	$commandStack = $hash->{Command};
+	my @a = split(/#/,$commandStack,2);
+	$command = $a[0];
+	$commandStack = $a[1];
+	$hash->{Command} = $commandStack;
 
- my $response;
+  } else{
+	Log 3, "KEBA sendCommand: No Command to send";  
+	return;
+  }
+  
+  my $response;
 
- Log 3, "$name Sending command: ".$command;
+  if (!(defined $command)){
+    return:
+  }
 
- my $ipaddr = inet_aton($ip);
- my $destaddr = sockaddr_in($port, $ipaddr);
- send($socket, $command, 0, $destaddr);
- Log 3, "$name Command was sent";
+  Log 3, "$name Sending command: ".$command;
+
+  my $ipaddr = inet_aton($ip);
+  my $destaddr = sockaddr_in($port, $ipaddr);
+  send($socket, $command, 0, $destaddr);
+  Log 3, "$name Command was sent";
  
 }
-
-
 
 
 
@@ -141,13 +197,12 @@ sub KEBA_Read($){
   $socket->recv($response,512);
 
   Log 3, "Message received";
-  Log 4, "Data: $response";
+  Log 3, "Data: $response";
   
   $hash->{LAST_CONNECT} = FmtDateTime( gettimeofday() );
   
   my $first = substr($response,0,1);
 
-  # keine JSON Nachricht => Direkte Ausgabe im Reading 'LASTMSG'
   if ($first ne "{"){
    $hash->{LAST_MESSAGE} = $response;
    Log 3, "received message: $response";
@@ -162,65 +217,149 @@ sub KEBA_Read($){
 
     my $value = $decoded->{$key};
     $key =~ tr/ //d;
+
+    if ($key eq "State"){
+      $value = $KEBA_state{$value};     
+
+    }elsif ($key eq "Plug"){
+      $value = $KEBA_plug{$value};  
+
+    }elsif ($key eq "Enablesys" || $key eq "Enableuser"){
+      $value = $KEBA_enablestate{$value};    
+
+    }elsif ($key eq "Output"){
+      $value = $KEBA_output{$value};     
+
+    }else {
+	  Log 4, "KEBA: No Mapping found: $key"; 	
+     
+    }
     readingsBulkUpdate($hash, $key, $value);
 
-  }
- 
+  } 
   readingsEndUpdate($hash, 1);
+
+  #send futher command if exists in command Queue
+  KEBA_sendCommand($hash);
   
 }
 
 
 
-
-
 sub KEBA_Get($@) {
 
-	my ($hash, @param) = @_;
-	
-	return '"get KEBA" needs at least one argument' if (int(@param) < 2);
-	
-	my $name = shift @param;
-	my $opt = shift @param;
+  my ($hash, @param) = @_;
 
-	if(!$KEBA_gets{$opt}) {
-		my @cList = keys %KEBA_gets;
-		return "Unknown argument $opt, choose one of " . join(" ", @cList);
-	}
-	
-	if($attr{$name}{formal} eq 'yes') {
-	    return $KEBA_gets{$opt}.', sir';
-    }
-    
-	$hash->{Command}  = $KEBA_gets{$opt};
+  return '"get KEBA" needs at least one argument' if (int(@param) < 2);
+
+  return '"get KEBA" has no parameter' if (int(@param) > 2);
+
+  my $name = shift @param;
+  my $opt = shift @param;
+
+  return '"get KEBA $opt" has no parameter' if (int(@param) > 2);
+
+  if(!$KEBA_gets{$opt}) {
+    my @cList = keys %KEBA_gets;
+    return "Unknown argument $opt, choose one of " . join(" ", @cList);
+  }
+  
+  my $cmd = $KEBA_gets{$opt};
+
+  # get Commands in Queue
+  my $commandStack;
+  
+  if (defined ($hash->{Command})){
+  	$commandStack = $hash->{Command};
+  } 
+
+  if ($opt eq "update"){
+
+    # prepare new commands
+    my $commands = "$cmd 1#$cmd 2#$cmd 3#";
+
+    # add new commands
+    $commandStack = $commandStack.$commands;
+
+    $hash->{Command}  = $commandStack; 
+
     KEBA_sendCommand($hash);
+
+  }elsif($opt eq "info"){
+
+    # prepare new command
+    my $commands = "$cmd";
+	
+    # add new commands
+    $commandStack = join("#",$commands);
+	
+    # write Command-Queue back to hash
+    $hash->{Command}  = $commandStack; 
+
+    KEBA_sendCommand($hash);
+	  
+  }else{
+  	
+    Log 3, "Unknown command: $cmd";
+  }
+
 	
 }
 
 
 
-
-
 sub KEBA_Set($@) {
-	my ($hash, @param) = @_;
 	
-	return '"set KEBA" needs at least one argument' if (int(@param) < 2);
+  my ($hash, @param) = @_;
 	
-	my $name = shift @param;
-	my $opt = shift @param;
-	my $value = join("", @param);
+  #return 'set KEBA needs at least one argument and option' if (int(@param) < 3);
 	
-	if(!defined($KEBA_sets{$opt})) {
-		my @cList = keys %KEBA_sets;
-		return "Unknown argument $opt, choose one of " . join(" ", @cList);
-	}
+  my $name = shift @param;
+  my $opt = shift @param;
+  my $value = join("", @param);
+
+  if(!defined($KEBA_sets{$opt})) {
+    my @cList = keys %KEBA_sets;
+    return "Unknown argument $opt, choose one of " . join(" ", @cList);
+  }
+
+  if (!looks_like_number($value)){
+	  return "Parameter must be a number";
+  }
+
+  if ($opt eq "current" && ($value < 6000 || $value > 63000)){
+	  return "The value for current must be between 6000 and 63000";
+	  
+  }elsif ($opt eq "enableState" && ($value < 0 || $value > 1)){
+	  return "The value for enableState must be 0 (disable) or 1 (enable)";
+	  
+  }elsif ($opt eq "outputX2" && ($value < 0 || $value > 150)){
+	  return "The value for outputX2 must be\n 0 (open)\n 1 (closed)\n between 10 and 150 (Pulse output with the specified number of pulses (pulses / kWh))";
+  }	
 	
-	$value = $KEBA_sets{$opt};
+  	
+  my $cmd = $KEBA_sets{$opt}." ".$value;
+
+  # get Commands in Queue
+  my $commandStack;
+  
+  if (defined ($hash->{Command})){
+  	$commandStack = $hash->{Command};
+  } 
+
+  # prepare new command
+  my $commands = $cmd;
+
+  # add new commands
+  $commandStack = join("#",$commands);
 	
-    $hash->{STATE} = $value;
-	$hash->{Command}  = $value;
+  # write Command-Queue back to hash
+  $hash->{Command}  = $commandStack; 
+  $hash->{STATE} = $cmd;
+
+  Log 3 , "setCmd: $cmd";
 	
-	KEBA_sendCommand($hash);
+  KEBA_sendCommand($hash);
     
 }
 
