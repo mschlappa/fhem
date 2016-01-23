@@ -2,10 +2,13 @@
 #
 # ZE-Services
 #
+# Anzeige von Akkustand und Reichweite vom Renault Zoe in fhem
+#
 # Idee 'geklaut' von https://github.com/nabossha/ZEServices
 # Vielen Dank an Nando Bosshart fuer die Vorarbeit !
 #
 # Quick & Dirty Portiert nach Perl von Marcus Schlappa 
+# Aufruf kann z.B. in Cron alle 30min erfolgen
 # 
 
 use strict;
