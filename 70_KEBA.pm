@@ -174,7 +174,7 @@ sub KEBA_sendCommand($)
   my $response;
 
   if (!(defined $command)){
-    return:
+    return;
   }
 
   Log 3, "$name Sending command: ".$command;
