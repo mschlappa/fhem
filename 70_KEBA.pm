@@ -213,7 +213,7 @@ sub KEBA_Read($){
 
   readingsBeginUpdate($hash);
 
-  foreach my $key (keys %$decoded){
+  foreach my $key (keys %{$decoded}){
 
     my $value = $decoded->{$key};
     $key =~ tr/ //d;
