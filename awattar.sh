@@ -1,76 +1,109 @@
 #!/bin/bash
 #
-# Skript laedt aktuelle Preisinformationen des Stromanbieters aWATTar 
-# ueber die REST-Schnittstelle herunter und speichert sie in einer
-# SQLite Datenbank fuer spaetere Auswertungen.
+# Beim Stromanbieter aWATTar aendern sich im Tarif 'HOURLY' 
+# die Strompreise stuendlich.
+#
+# Dieses Skript laedt aktuelle Preisinformationen des Stromanbieters
+# ueber deren REST-Schnittstelle herunter und gibt den Startzeitpunkt 
+# des preisoptimalen Zeitfensters als Timestamp (Unix Epoche) zurueck.
+#
+# Als Parameter wird ein positiver Integerwert uebergeben, der 
+# die Groesse des gewuenschten Zeitfensters in Stunden angibt. Wenn kein 
+# Parameter uebergeben wurde wird das Zeitfenster mit 1(h) angenommen.
 # 
 # Voraussetzungen:
-#
-# - SQLite muss im Pfad vorhanden sein 
-#   (https://sqlite.org)         
 #
 # - Command-line JSON processor 'jq' muss vorhanden sein 
 #   (https://github.com/stedolan/jq)
 #
+# - Command GNU bc muss vorhanden sein
+#
+#
 # von Marcus Schlappa
 # mschlappa at gmx dot de
 #
-# v0.1 vom 02.04.2019
+# v0.1 vom 23.10.2019
 #
 #
 
-# aWATTar REST Api
+# URI der aWATTar REST Api
 fname=marketdata
 url=https://api.awattar.de/v1/$fname 
 
-#  SQLite DB-Name
-dbname=$fname.db
 
-# alte  Preisinfos loeschen
+# Uebergebener Parameter gibt die Groesse des Zeitfensters in Stunden an
+windowsize=$1
+
+# Wenn kein Parameter uebergeben wurde, ist das Zeitfenster 1(Stunde)
+if [ "$#" -ne 1 ]
+then
+    windowsize=1
+fi
+
+# Das Zeitfenster darf nicht beliebig gewaehlt werden
+if [[ $windowsize -lt 1 || $windowsize -gt 6 ]] 
+then 
+  echo "Zeitfenster muss groesser 0 und kleiner als 7 sein"
+  exit 1;
+fi
+
+
+# ggf. alte  Preisinfos loeschen
 rm -f $fname
 
-if [ ! -f $dbname ]
-then
-  echo $dbname existiert noch nicht und wird angelegt.
-  sqlite3 $dbname "create table preis (beginn TIMESTAMP PRIMARY KEY , preis DECIMAL );"
-else
-  echo $dbname ist vorhanden.
-fi
- 
-
-# lese den maximalen Timestamp aus der Preis-Tabelle
-maxbeginn=$(sqlite3 $dbname "select max(beginn) from preis;")
-
-
-# falls noch kein Datensatz vorhanden ist wird der aktuelle Timestamp gesetzt
-if [ -z "$maxbeginn" ]
-then
-  maxbeginn=$(date +%s%N | cut -b1-13)
-fi
-
-maxbeginn=$[$maxbeginn+1]
-
-echo aktuelle Preis-Daten herunterladen mit Beginn $maxbeginn 
-curl -s $url?start=$maxbeginn >$fname
+# aktuelle Preis-Daten herunterladen
+curl -s $url >$fname
 
 if [ ! -f $fname ]
 then
-  echo Preisinformationen konnten nicht geladen werden
-  exit
+  echo "Preisinformationen konnten nicht geladen werden"
+  exit 2;
 fi
 
 
 
-# Auswerten der heruntergeladenen Preisinfos
+# Anzahl der heruntergeladenen Preis-Intervalle
 length=$(cat marketdata | jq '.data | length')
 
-jq -c '.data | .[] | (.start_timestamp | tostring) + "," + (.marketprice | tostring )' $fname | while read i; do
-  set=$(echo $i | cut -d '"' -f 2)
-  sqlite3 $dbname "insert into preis (beginn,preis) values ($set);"
-done
+# Groesse der Arrays bestimmen
+asize=$[$length+$windowsize-1]
 
-minpreis=$(sqlite3 $dbname "select beginn, min(preis) from preis;")
+# Arrays (Timestamp/ Preis) mit passender Groesse initialisieren und vorbelegen
+declare -a zeit=( $(for i in $(seq 1 $asize); do echo 0; done) )
+declare -a preis=( $(for i in $(seq 1 $asize); do echo 9999; done) )
 
-echo Der minimale Preis ist $minpreis
 
+
+# Array mit den gelesenen Werten der REST Schnittstelle fuellen
+count=0;
+while read i; do
+  t=$(echo $i | cut -d '"' -f 2 | cut -d ',' -f 1);
+  p=$(echo $i | cut -d '"' -f 2 | cut -d ',' -f 2);
+  zeit[$count]=$t;
+  preis[$count]=$p;
+  count=$[$count+1];
+done < <(jq -c '.data | .[] | (.start_timestamp | tostring) + "," + (.marketprice | tostring )' $fname)
+
+
+
+# Finde Minimum
+ min=999999
+ # Schleife ueber alle Preise
+ for n in $(seq $windowsize $asize); do
+   index=$[$n-$windowsize]
+   sum=0;
+   # Alle Werte im Zeitfenster addieren
+   for m in $(seq 1 $windowsize); do
+    index2=$[$index+$m-1]
+    p=${preis[$index2]}
+    sum=$(bc <<< "scale=0;$sum+($p*100)/1")
+   done
+   # Ggf. gefundenes neues Minimum merken
+   (( $sum < $min )) && min=$sum && minindex=$index
+ done
+
+
+
+# Rueckgabe des preisoptimalen Zeitpunkts als Unix Epoch
+echo $(bc <<< "${zeit[$minindex]}/1000")
 
