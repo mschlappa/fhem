@@ -30,6 +30,8 @@
 fname=marketdata
 url=https://api.awattar.de/v1/$fname 
 
+# Path to 'jq'
+jqcmd=/usr/local/bin/jq
 
 # Uebergebener Parameter gibt die Groesse des Zeitfensters in Stunden an
 windowsize=$1
@@ -63,7 +65,7 @@ fi
 
 
 # Anzahl der heruntergeladenen Preis-Intervalle
-length=$(cat marketdata | jq '.data | length')
+length=$(cat marketdata | $jqcmd '.data | length')
 
 # Groesse der Arrays bestimmen
 asize=$[$length+$windowsize-1]
@@ -82,7 +84,7 @@ while read i; do
   zeit[$count]=$t;
   preis[$count]=$p;
   count=$[$count+1];
-done < <(jq -c '.data | .[] | (.start_timestamp | tostring) + "," + (.marketprice | tostring )' $fname)
+done < <($jqcmd -c '.data | .[] | (.start_timestamp | tostring) + "," + (.marketprice | tostring )' $fname)
 
 
 
