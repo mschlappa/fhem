@@ -9,7 +9,7 @@
 #
 # written 2015 by Marcus Schlappa <mschlappa at gmx dot de>
 #
-# Version = 1.1   02.12.2015
+# Version = 1.2   25.11.2019
 #
 ##############################################################################
 
@@ -389,8 +389,7 @@ sub KEBA_Set($@) {
     <ul>
         <code>set <name> <option></code>
         <br><br>
-        You can enable or disable the wallbox with <i>set</i> command.
-        <br><br>
+        You can enable or disable the wallbox and set the current with <i>set</i> command.
     </ul>
     <br>
 
@@ -399,11 +398,11 @@ sub KEBA_Set($@) {
     <ul>
         <code>get <name> <option></code>
         <br><br>
-        You can <i>get</i> the status of the wallbox via info report1-3 
+        You can <i>get</i> the status of the wallbox via 'info' and 'update' (no other parameter required) 
     </ul>
     <br>    
 </ul>
 
 =end html
 
-=cut￿
+=cut
