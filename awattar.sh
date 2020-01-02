@@ -22,7 +22,7 @@
 # von Marcus Schlappa
 # mschlappa at gmx dot de
 #
-# v0.1 vom 23.10.2019
+# v0.2 vom 02.01.2020
 #
 #
 
