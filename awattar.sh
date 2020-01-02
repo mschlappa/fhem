@@ -78,12 +78,14 @@ declare -a preis=( $(for i in $(seq 1 $asize); do echo 9999; done) )
 
 # Array mit den gelesenen Werten der REST Schnittstelle fuellen
 count=0;
+mittelwert=0;
 while read i; do
   t=$(echo $i | cut -d '"' -f 2 | cut -d ',' -f 1);
   p=$(echo $i | cut -d '"' -f 2 | cut -d ',' -f 2);
   zeit[$count]=$t;
   preis[$count]=$p;
   count=$[$count+1];
+  mittelwert=$(bc <<< "scale=0;$mittelwert+($p*100)/1");
 done < <($jqcmd -c '.data | .[] | (.start_timestamp | tostring) + "," + (.marketprice | tostring )' $fname)
 
 
@@ -105,7 +107,17 @@ done < <($jqcmd -c '.data | .[] | (.start_timestamp | tostring) + "," + (.market
  done
 
 
+# Rueckgabe des preisoptimalen Start-Zeitpunkts als Unix Epoch
+startzeitpunkt=$(bc <<< "${zeit[$minindex]}/1000");
 
-# Rueckgabe des preisoptimalen Zeitpunkts als Unix Epoch
-echo $(bc <<< "${zeit[$minindex]}/1000")
+# Mittelwert des Preises innerhalb des preisoptimalen Zeitfensters
+mittelwertOpt=$(bc <<< "scale=2;$min/$windowsize*1.19/1000"); 
 
+# Mittelwert des Preises ueber alle gelesenen Werte
+mittelwertGesamt=$(bc <<< "scale=2;$mittelwert/$length*1.19/1000"); 
+
+# Mittelwert des Preises ohne die Preise im optimalen Zeitfenster
+mittelwertRest=$(bc <<< "scale=1;($length*$mittelwertGesamt-($windowsize*$mittelwertOpt))/($length-$windowsize)");
+
+# Rueckgabe der Ergebnisse
+echo $startzeitpunkt $mittelwertOpt $mittelwertGesamt $mittelwertRest
