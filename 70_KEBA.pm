@@ -2,14 +2,14 @@
 #
 # 70_KEBA.pm
 #
-# a module to send/receive messages or send commands to/from a 
+# This fhem module allows sending/receiving messages to/from a 
 # KEBA KeContact P20 Wallbox (c-Series with Ethernet option only). 
 #
-# This wallbox is intended to load Electric Vehicles
+# This wallbox is intended to charge Electric Vehicles
 #
 # written 2015 by Marcus Schlappa <mschlappa at gmx dot de>
 #
-# Version = 1.2   25.11.2019
+# Version = 1.3   26.02.2020
 #
 ##############################################################################
 
@@ -31,7 +31,6 @@ my %KEBA_gets = (
 my %KEBA_sets = (
   "enableState" => "ena",
   "current"     => "curr",
-  #"failsave"    => "failsave",
   "outputX2"    => "output"
 );
 
@@ -91,17 +90,28 @@ sub KEBA_Define($$) {
   my ($hash, $def) = @_;
   my @param = split('[ \t]+', $def);
     
-  if(int(@param) != 4) {
+  if(int(@param) != 5) {
     return "KEBA_Define: number of arguments incorrect. Usage:\n" .
-            "define <name> KEBA <host> <port>";
+            "define <name> KEBA <host> <port> <interval>";
   }
 
   $hash->{Host}  = $param[2];
   $hash->{Port} = $param[3];
+  $hash->{Interval} = $param[4];
+
+  if (!looks_like_number($hash->{Interval})){
+    return "interval must be a number";
+  }
+
+  if ($hash->{Interval} < 10 || $hash->{Interval} > 900){
+    return "The value for interval  must be between 10 and 900";
+  }
 	
-  Log3 $hash, 3, "$hash->{NAME} will read from KEBA at $hash->{Host}:$hash->{Port} " ;
+  Log3 $hash, 3, "$hash->{NAME} will read from KEBA at $hash->{Host}:$hash->{Port} with Interval of $hash->{Interval} seconds" ;
  
   KEBA_connect($hash);
+
+  InternalTimer(gettimeofday()+$hash->{Interval}, "KEBA_GetUpdate", $hash, 0);
 
 }
 
@@ -363,24 +373,49 @@ sub KEBA_Set($@) {
     
 }
 
+sub KEBA_GetUpdate($$) {
 
+  my ($hash) = @_;
+
+  # start internal timer; do it at the beginning to achieve equal intervals no matter how long it takes to gather data
+  InternalTimer(gettimeofday()+$hash->{Interval}, "KEBA_GetUpdate", $hash, 1);
+  
+  # gather data
+  Log 3, "Start Update";
+
+  # get Commands in Queue
+  my $commandStack;
+
+  # prepare new commands
+  my $commands = "report 1#report 2#report 3#";
+
+  # add new commands
+  $commandStack = $commandStack.$commands;
+
+  $hash->{Command}  = $commandStack;
+
+  KEBA_sendCommand($hash);
+
+}
 
 1;
 
 =pod
+=item device
+=item summary Controls Keba P20 Wallbox for Charging EVs
 =begin html
 
 <a name="KEBA"></a>
 <h3>KEBA</h3>
 <ul>
-    <i>KEBA</i> Allows you to control KEBA P20 Wallbox with Ethernet Option.
+    This module sends and receives messages/commands to P20 wallbox from KEBA with ethernet option.
     <br><br>
     <a name="KEBAdefine"></a>
     <b>Define</b>
     <ul>
-        <code>define <name> KEBA <ip> <port></code>
+        <code>define &lt;name&gt; KEBA &lt;ip&gt; &lt;port&gt; &lt;refreshIntervalSeconds&gt; </code>
         <br><br>
-        Example: <code>define &lt;name&gt; KEBA &lt;host&gt; &lt;port&gt;</code><br>
+        Example: <code>define myKeba KEBA 192.168.1.10 7090 60</code><br>
     </ul>
     <br>
     
