@@ -22,7 +22,7 @@
 # von Marcus Schlappa
 # mschlappa at gmx dot de
 #
-# v0.2 vom 02.01.2020
+# v0.3 vom 03.10.2021
 #
 #
 
@@ -54,7 +54,7 @@ fi
 rm -f $fname
 
 # aktuelle Preis-Daten herunterladen
-curl -s $url >$fname
+curl -k -s $url >$fname
 
 if [ ! -f $fname ]
 then
