@@ -1,19 +1,19 @@
 #!/bin/bash
 #
-# Beim Stromanbieter aWATTar aendern sich im Tarif 'HOURLY' 
+# Beim Stromanbieter aWATTar aendern sich im Tarif 'HOURLY'
 # die Strompreise stuendlich.
 #
 # Dieses Skript laedt aktuelle Preisinformationen des Stromanbieters
-# ueber deren REST-Schnittstelle herunter und gibt den Startzeitpunkt 
+# ueber deren REST-Schnittstelle herunter und gibt den Startzeitpunkt
 # des preisoptimalen Zeitfensters als Timestamp (Unix Epoche) zurueck.
 #
-# Als Parameter wird ein positiver Integerwert uebergeben, der 
-# die Groesse des gewuenschten Zeitfensters in Stunden angibt. Wenn kein 
+# Als Parameter wird ein positiver Integerwert uebergeben, der
+# die Groesse des gewuenschten Zeitfensters in Stunden angibt. Wenn kein
 # Parameter uebergeben wurde wird das Zeitfenster mit 1(h) angenommen.
-# 
+#
 # Voraussetzungen:
 #
-# - Command-line JSON processor 'jq' muss vorhanden sein 
+# - Command-line JSON processor 'jq' muss vorhanden sein
 #   (https://github.com/stedolan/jq)
 #
 # - Command GNU bc muss vorhanden sein
@@ -22,16 +22,20 @@
 # von Marcus Schlappa
 # mschlappa at gmx dot de
 #
-# v0.3 vom 03.10.2021
+# v0.4 vom 07.10.2021
 #
 #
 
 # URI der aWATTar REST Api
 fname=marketdata
-url=https://api.awattar.de/v1/$fname 
+url=https://api.awattar.de/v1/$fname
 
 # Path to 'jq'
 jqcmd=/usr/local/bin/jq
+
+# Maximaler kWh-Preis in Cent (brutto) im Tarif Hourly
+max=20.00
+max=$(bc <<< "scale=2;$max/0.119"); #Umrechnen in Euro/MWh und 19% Steuer
 
 # Uebergebener Parameter gibt die Groesse des Zeitfensters in Stunden an
 windowsize=$1
@@ -43,8 +47,8 @@ then
 fi
 
 # Das Zeitfenster darf nicht beliebig gewaehlt werden
-if [[ $windowsize -lt 1 || $windowsize -gt 6 ]] 
-then 
+if [[ $windowsize -lt 1 || $windowsize -gt 6 ]]
+then
   echo "Zeitfenster muss groesser 0 und kleiner als 7 sein"
   exit 1;
 fi
@@ -83,6 +87,10 @@ while read i; do
   t=$(echo $i | cut -d '"' -f 2 | cut -d ',' -f 1);
   p=$(echo $i | cut -d '"' -f 2 | cut -d ',' -f 2);
   zeit[$count]=$t;
+  # Falls der Preis pro kWh ueber max liegt, dann auf max begrenzen
+  if (( $(echo "$p > $max" |bc -l) )); then
+   p=$max;
+  fi
   preis[$count]=$p;
   count=$[$count+1];
   mittelwert=$(bc <<< "scale=0;$mittelwert+($p*100)/1");
@@ -111,10 +119,10 @@ done < <($jqcmd -c '.data | .[] | (.start_timestamp | tostring) + "," + (.market
 startzeitpunkt=$(bc <<< "${zeit[$minindex]}/1000");
 
 # Mittelwert des Preises innerhalb des preisoptimalen Zeitfensters
-mittelwertOpt=$(bc <<< "scale=2;$min/$windowsize*1.19/1000"); 
+mittelwertOpt=$(bc <<< "scale=2;$min/$windowsize*1.19/1000");
 
 # Mittelwert des Preises ueber alle gelesenen Werte
-mittelwertGesamt=$(bc <<< "scale=2;$mittelwert/$length*1.19/1000"); 
+mittelwertGesamt=$(bc <<< "scale=2;$mittelwert/$length*1.19/1000");
 
 # Mittelwert des Preises ohne die Preise im optimalen Zeitfenster
 mittelwertRest=$(bc <<< "scale=1;($length*$mittelwertGesamt-($windowsize*$mittelwertOpt))/($length-$windowsize)");
