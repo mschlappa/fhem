@@ -34,7 +34,7 @@ url=https://api.awattar.de/v1/$fname
 jqcmd=/usr/local/bin/jq
 
 # Maximaler kWh-Preis in Cent (brutto) im Tarif Hourly
-max=20.00
+max=40.00
 max=$(bc <<< "scale=2;$max/0.119"); #Umrechnen in Euro/MWh und 19% Steuer
 
 # Uebergebener Parameter gibt die Groesse des Zeitfensters in Stunden an
