@@ -22,7 +22,7 @@
 # von Marcus Schlappa
 # mschlappa at gmx dot de
 #
-# v0.4 vom 07.10.2021
+# v0.5 vom 24.10.2022
 #
 #
 
@@ -34,7 +34,7 @@ url=https://api.awattar.de/v1/$fname
 jqcmd=/usr/local/bin/jq
 
 # Maximaler kWh-Preis in Cent (brutto) im Tarif Hourly
-max=40.00
+max=80.00
 max=$(bc <<< "scale=2;$max/0.119"); #Umrechnen in Euro/MWh und 19% Steuer
 
 # Uebergebener Parameter gibt die Groesse des Zeitfensters in Stunden an
